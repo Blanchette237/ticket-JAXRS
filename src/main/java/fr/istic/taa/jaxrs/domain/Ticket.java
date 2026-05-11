@@ -84,8 +84,7 @@ public class Ticket implements Serializable{
 		this.prixUnitaire = prixUnitaire;
 	}
 	public void setPrixUnitaire(Double prixUnitaire) {
-		// TODO Auto-generated method stub
-		
+		this.prixUnitaire = prixUnitaire;
 	}
 
 }

@@ -10,14 +10,13 @@ import io.swagger.v3.oas.annotations.servers.Server;
         info = @Info(
                 title = "API Ticket",
                 version = "1.0",
-                description = "Documentation de l'API de gestion des tickets",
+                description = "Documentation de l'API de gestion des tickets de concerts",
                 contact = @Contact(name = "Blanche"),
                 license = @License(name = "Apache 2.0")
         ),
         servers = {
-                @Server(url= "http://localhost/8080", description = "Serveur local")
+                @Server(url = "http://localhost:8080", description = "Serveur local")
         }
 )
-
 public class config {
 }

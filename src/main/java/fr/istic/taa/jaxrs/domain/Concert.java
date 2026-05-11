@@ -11,7 +11,7 @@ import java.util.List;
 @Entity
 @Table(name = "concert")
 @NamedQuery(name = "Concert.findByLieu", query = "SELECT c from Concert c where c.lieu = :lieu")
-public class Concert implements Serializable{
+public class Concert implements Serializable {
 	@Id
 	@GeneratedValue
 	private Long ConcertId;
@@ -19,16 +19,18 @@ public class Concert implements Serializable{
 	private String Description;
 	private LocalDateTime date;
 	private Double popularite;
-	
-	private double capaciteMax;// nombre de places
+
+	private double capaciteMax; // nombre total de places (immuable après création)
+	private double capacite;    // places disponibles (décrémentées à chaque vente)
+
 	@ManyToOne
-    @JoinColumn(name = "UserId", nullable = false)
-    private Organiser organiser;
-	
+	@JoinColumn(name = "UserId", nullable = false)
+	private Organiser organiser;
+
 	@OneToMany(mappedBy = "concert", cascade = CascadeType.ALL)
 	@JsonBackReference
-    private List<Ticket> ticketsVendus = new ArrayList<>();
-	
+	private List<Ticket> ticketsVendus = new ArrayList<>();
+
 	public Long getConcertId() {
 		return ConcertId;
 	}
@@ -48,11 +50,10 @@ public class Concert implements Serializable{
 		this.organiser = organiser;
 	}
 	public double getCapacite() {
-		return capaciteMax;
+		return capacite;
 	}
-	
-	public void setCapacite(double capaciteMax ) {
-		this.capaciteMax = capaciteMax;
+	public void setCapacite(double capacite) {
+		this.capacite = capacite;
 	}
 	public String getLieu() {
 		return lieu;
@@ -78,11 +79,9 @@ public class Concert implements Serializable{
 	public void setDate(LocalDateTime date) {
 		this.date = date;
 	}
-
 	public Double getPopularite() {
 		return popularite;
 	}
-
 	public void setPopularite(Double popularite) {
 		this.popularite = popularite;
 	}
