@@ -1,10 +1,12 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ConcertService } from '../../services/concert.service';
 import { TicketService } from '../../services/ticket.service';
+import { SessionService } from '../../services/session.service';
 import { Concert } from '../../models/concert.model';
+import { SessionUser } from '../../models/user.model';
 
 @Component({
   selector: 'app-concert-detail',
@@ -18,6 +20,7 @@ import { Concert } from '../../models/concert.model';
       <div *ngIf="erreur" class="error-msg">{{ erreur }}</div>
 
       <div *ngIf="concert" class="detail-layout">
+        <!-- Infos concert -->
         <div class="detail-card">
           <div class="detail-header">
             <h1>{{ concert.lieu }}</h1>
@@ -26,9 +29,7 @@ import { Concert } from '../../models/concert.model';
               <span *ngFor="let s of emptyStars(concert.popularite)" class="empty">★</span>
             </div>
           </div>
-
           <p class="description">{{ concert.description }}</p>
-
           <div class="info-grid">
             <div class="info-item">
               <span class="info-label">Date</span>
@@ -49,7 +50,6 @@ import { Concert } from '../../models/concert.model';
               </span>
             </div>
           </div>
-
           <div class="progress-bar">
             <div class="progress-fill"
                  [style.width.%]="(1 - concert.capacite / concert.capaciteMax) * 100"
@@ -61,43 +61,52 @@ import { Concert } from '../../models/concert.model';
           </p>
         </div>
 
-        <!-- Formulaire d'achat de ticket -->
+        <!-- Formulaire réservation -->
         <div class="ticket-form-card">
           <h2>Réserver un ticket</h2>
 
-          <div *ngIf="concert.capacite <= 0" class="complet-msg">
-            Ce concert est complet.
+          <!-- Pas connecté -->
+          <div *ngIf="!user" class="no-session">
+            <p>Vous devez être connecté en tant que <strong>client</strong> pour réserver.</p>
+            <a routerLink="/inscription" class="btn-primary">Créer un compte</a>
           </div>
 
-          <form *ngIf="concert.capacite > 0" (ngSubmit)="acheterTicket()" #form="ngForm">
-            <div class="form-group">
-              <label>Votre ID client</label>
-              <input type="number" [(ngModel)]="clientId" name="clientId"
-                     required min="1" placeholder="Ex: 1" class="form-input" />
+          <!-- Connecté en tant qu'organisateur -->
+          <div *ngIf="user && user.role === 'ORGANISATEUR'" class="no-session">
+            <p>Vous êtes connecté comme organisateur. Seuls les clients peuvent acheter des tickets.</p>
+            <a routerLink="/organisateur" class="btn-primary">Mon tableau de bord</a>
+          </div>
+
+          <!-- Connecté en tant que client -->
+          <ng-container *ngIf="user && user.role === 'CLIENT'">
+            <div class="session-info">
+              Connecté en tant que <strong>{{ user.firstname }} {{ user.name }}</strong>
+              <span class="client-id">(ID client : {{ user.userId }})</span>
             </div>
 
-            <div class="form-group">
-              <label>Numéro de place</label>
-              <input type="text" [(ngModel)]="numeroPlace" name="numeroPlace"
-                     required placeholder="Ex: VIP1, A12, B34" class="form-input" />
-              <small class="hint">
-                Zones : VIP (+50€), A (+20€), B (+10€), autres (+5€)<br>
-                Places 1-10 : +20€ | Places 11-30 : +10€
-              </small>
+            <div *ngIf="concert.capacite <= 0" class="complet-msg">
+              Ce concert est complet.
             </div>
 
-            <div *ngIf="prixEstime" class="prix-estime">
-              Prix estimé : <strong>{{ prixEstime }}€</strong>
-              <small> (calculé selon zone, numéro et popularité)</small>
-            </div>
+            <form *ngIf="concert.capacite > 0" (ngSubmit)="acheterTicket()" #form="ngForm">
+              <div class="form-group">
+                <label>Numéro de place</label>
+                <input type="text" [(ngModel)]="numeroPlace" name="numeroPlace"
+                       required placeholder="Ex: VIP1, A12, B34" class="form-input" />
+                <small class="hint">
+                  Zones : <strong>VIP</strong> (+50€) · <strong>A</strong> (+20€) · <strong>B</strong> (+10€) · autres (+5€)<br>
+                  Places 1–10 : +20€ · Places 11–30 : +10€
+                </small>
+              </div>
 
-            <div *ngIf="succes" class="succes-msg">{{ succes }}</div>
-            <div *ngIf="achatErreur" class="error-msg">{{ achatErreur }}</div>
+              <div *ngIf="succes" class="succes-msg">{{ succes }}</div>
+              <div *ngIf="achatErreur" class="error-msg">{{ achatErreur }}</div>
 
-            <button type="submit" class="btn-primary" [disabled]="achatEnCours || !form.valid">
-              {{ achatEnCours ? 'Réservation...' : 'Confirmer la réservation' }}
-            </button>
-          </form>
+              <button type="submit" class="btn-primary" [disabled]="achatEnCours || !form.valid">
+                {{ achatEnCours ? 'Réservation...' : 'Confirmer la réservation' }}
+              </button>
+            </form>
+          </ng-container>
         </div>
       </div>
     </div>
@@ -132,6 +141,16 @@ import { Concert } from '../../models/concert.model';
     .progress-label { font-size: 0.8rem; color: #999; }
 
     .ticket-form-card h2 { color: #1a1a2e; margin-bottom: 1.5rem; }
+
+    .session-info {
+      background: #f0f4ff; border-radius: 8px; padding: 0.8rem 1rem;
+      font-size: 0.9rem; color: #444; margin-bottom: 1.5rem;
+    }
+    .client-id { color: #888; margin-left: 0.4rem; font-size: 0.82rem; }
+
+    .no-session { text-align: center; padding: 1.5rem; }
+    .no-session p { color: #666; margin-bottom: 1.2rem; line-height: 1.6; }
+
     .form-group { margin-bottom: 1.2rem; display: flex; flex-direction: column; gap: 0.4rem; }
     .form-group label { font-weight: 600; color: #444; font-size: 0.9rem; }
     .form-input {
@@ -139,13 +158,10 @@ import { Concert } from '../../models/concert.model';
       font-size: 1rem; transition: border-color 0.2s; outline: none;
     }
     .form-input:focus { border-color: #e94560; }
-    .hint { color: #999; font-size: 0.8rem; line-height: 1.5; }
+    .hint { color: #999; font-size: 0.8rem; line-height: 1.6; }
 
-    .prix-estime {
-      background: #fff8e1; border: 1px solid #ffe082; border-radius: 8px;
-      padding: 0.8rem; margin-bottom: 1rem; color: #f57c00;
-    }
     .btn-primary {
+      display: inline-block; text-decoration: none; text-align: center;
       width: 100%; background: #e94560; color: #fff; border: none;
       padding: 0.8rem; border-radius: 8px; cursor: pointer; font-weight: 700;
       font-size: 1rem; transition: background 0.2s;
@@ -154,31 +170,30 @@ import { Concert } from '../../models/concert.model';
     .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
 
     .succes-msg { color: #2e7d32; background: #e8f5e9; padding: 0.7rem; border-radius: 8px; margin-bottom: 1rem; }
-    .error-msg, .achat-erreur { color: #c62828; background: #fce4ec; padding: 0.7rem; border-radius: 8px; margin-bottom: 1rem; }
+    .error-msg { color: #c62828; background: #fce4ec; padding: 0.7rem; border-radius: 8px; margin-bottom: 1rem; }
     .complet-msg { color: #c62828; font-weight: 600; text-align: center; padding: 2rem; }
     .loading { text-align: center; padding: 3rem; color: #666; }
   `]
 })
 export class ConcertDetailComponent implements OnInit {
   concert: Concert | null = null;
+  user: SessionUser | null = null;
   loading = true;
   erreur: string | null = null;
-
-  clientId: number | null = null;
   numeroPlace = '';
   achatEnCours = false;
   succes: string | null = null;
   achatErreur: string | null = null;
-  prixEstime: number | null = null;
 
   constructor(
     private route: ActivatedRoute,
-    private router: Router,
     private concertService: ConcertService,
-    private ticketService: TicketService
+    private ticketService: TicketService,
+    private sessionService: SessionService
   ) {}
 
   ngOnInit(): void {
+    this.user = this.sessionService.user;
     const id = Number(this.route.snapshot.paramMap.get('id'));
     this.concertService.getById(id).subscribe({
       next: (c) => { this.concert = c; this.loading = false; },
@@ -187,18 +202,18 @@ export class ConcertDetailComponent implements OnInit {
   }
 
   acheterTicket(): void {
-    if (!this.clientId || !this.numeroPlace || !this.concert) return;
+    if (!this.user || !this.concert) return;
     this.achatEnCours = true;
     this.succes = null;
     this.achatErreur = null;
 
     this.ticketService.create({
-      utilisateurId: this.clientId,
+      utilisateurId: this.user.userId,
       concertId: this.concert.concertId,
       numeroPlace: this.numeroPlace
     }).subscribe({
       next: () => {
-        this.succes = 'Ticket réservé avec succès !';
+        this.succes = `Ticket réservé ! Place ${this.numeroPlace} confirmée.`;
         this.achatEnCours = false;
         this.concert!.capacite--;
         this.numeroPlace = '';

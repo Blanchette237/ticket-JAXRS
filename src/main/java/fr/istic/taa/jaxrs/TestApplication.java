@@ -16,8 +16,10 @@
  */
 package fr.istic.taa.jaxrs;
 
+import fr.istic.taa.jaxrs.rest.ClientResource;
 import fr.istic.taa.jaxrs.rest.ConcertRessource;
 import fr.istic.taa.jaxrs.rest.CorsFilter;
+import fr.istic.taa.jaxrs.rest.OrganisateurResource;
 import fr.istic.taa.jaxrs.rest.TicketResource;
 import fr.istic.taa.jaxrs.rest.config;
 import io.swagger.v3.jaxrs2.integration.resources.OpenApiResource;
@@ -39,6 +41,8 @@ public class TestApplication extends Application {
         clazzes.add(config.class);
         clazzes.add(CorsFilter.class);
         clazzes.add(OpenApiResource.class);
+        clazzes.add(ClientResource.class);
+        clazzes.add(OrganisateurResource.class);
         clazzes.add(ConcertRessource.class);
         clazzes.add(TicketResource.class);
 //        clazzes.add(AcceptHeaderOpenApiResource.class);

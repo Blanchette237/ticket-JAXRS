@@ -8,7 +8,7 @@ public class OrganiserCreateDTO {
     private String name;
 
     @NotNull @NotEmpty
-    private String firsname;
+    private String firstname;
 
     @NotNull @NotEmpty
     private String email;
@@ -16,12 +16,12 @@ public class OrganiserCreateDTO {
     @NotNull @NotEmpty
     private String password;
 
-    public String getFirsname() {
-        return firsname;
+    public String getFirstname() {
+        return firstname;
     }
 
-    public void setFirsname(String firsname) {
-        this.firsname = firsname;
+    public void setFirstname(String firstname) {
+        this.firstname = firstname;
     }
 
     public String getName() {
