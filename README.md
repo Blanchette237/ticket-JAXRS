@@ -1,149 +1,332 @@
-## JaxRS + openAPI
+# TicketApp — Gestion de tickets de concerts
 
-1. Import this project in your IDE, 
-2. Start the database
-3. Start the database viewer
-4. Start the backend. There is a main class to start the backend
+Application full-stack de réservation de tickets de concerts, composée d'une **API REST Java JAX-RS** (backend) et d'une **application Angular** (frontend).
 
+---
 
+## Architecture du projet
 
+```
+ticket-JAXRS/
+├── src/                        ← Backend Java (JAX-RS)
+│   └── main/java/fr/istic/taa/
+│       ├── jaxr/
+│       │   ├── dto/            ← Objets de transfert (entrée API)
+│       │   └── services/       ← Logique métier
+│       └── jaxrs/
+│           ├── dao/            ← Accès base de données (JPA/Hibernate)
+│           ├── domain/         ← Entités JPA (Concert, Ticket, Client…)
+│           └── rest/           ← Ressources REST exposées
+├── ticket-front/               ← Frontend Angular 17
+│   └── src/app/
+│       ├── models/             ← Interfaces TypeScript
+│       ├── services/           ← Appels HTTP vers le backend
+│       └── components/         ← Pages et composants UI
+└── pom.xml                     ← Configuration Maven
+```
 
-# Task Open API Integration 
+---
 
-Now, we would like to ensure that our API can be discovered. The OpenAPI Initiative (OAI) was created by a consortium of forward-looking industry experts who recognize the immense value of standardizing on how REST APIs are described. As an open governance structure under the Linux Foundation, the OAI is focused on creating, evolving and promoting a vendor neutral description format. 
+## Stack technique
 
-APIs form the connecting glue between modern applications. Nearly every application uses APIs to connect with corporate data sources, third party data services or other applications. Creating an open description format for API services that is vendor neutral, portable and open is critical to accelerating the vision of a truly connected world.
+| Couche | Technologie |
+|---|---|
+| Backend | Java 11, JAX-RS (RESTEasy 6.2), Hibernate 6.2, Undertow |
+| Frontend | Angular 17 (standalone components), TypeScript, SCSS |
+| Base de données | MySQL 8 |
+| Documentation API | OpenAPI 3 + Swagger UI |
+| Tests | JUnit 5 + Mockito 5 |
 
-To do this integration first, I already add a dependencies to openAPI libraries. 
+---
+
+## Prérequis
+
+- **Java 11+** et **Maven 3.6+**
+- **Node.js 18+** et **npm 9+**
+- **MySQL 8** en cours d'exécution
+- **Angular CLI 17** : `npm install -g @angular/cli@17`
+
+---
+
+## 1. Démarrer la base de données
+
+### Créer la base MySQL
+
+```sql
+CREATE DATABASE ticketdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'ticketuser'@'localhost' IDENTIFIED BY 'ticketpass';
+GRANT ALL PRIVILEGES ON ticketdb.* TO 'ticketuser'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+### Configuration dans `persistence.xml`
+
+Le fichier `src/main/resources/META-INF/persistence.xml` contient la connexion :
 
 ```xml
-		<dependency>
-			<groupId>io.swagger.core.v3</groupId>
-			<artifactId>swagger-jaxrs2-jakarta</artifactId>
-			<version>2.2.15</version>
-		</dependency>
-
-		<dependency>
-			<groupId>io.swagger.core.v3</groupId>
-			<artifactId>swagger-jaxrs2-servlet-initializer-v2</artifactId>
-			<version>2.2.15</version>
-		</dependency>
+<property name="jakarta.persistence.jdbc.url" value="jdbc:mysql://localhost:3306/ticketdb"/>
+<property name="jakarta.persistence.jdbc.user" value="root"/>
+<property name="jakarta.persistence.jdbc.password" value=""/>
 ```
 
-Next you have to add OpenAPI Resource to your application
+> Modifiez les identifiants selon votre configuration MySQL.
 
-Your application could be something like that. 
+Hibernate crée automatiquement les tables au premier démarrage (`hbm2ddl.auto=update`).
+
+---
+
+## 2. Démarrer le backend
+
+### Depuis le terminal
+
+```bash
+# Compiler
+mvn compile
+
+# Lancer le serveur
+mvn exec:java -Dexec.mainClass="fr.istic.taa.jaxrs.RestServer"
+```
+
+### Depuis IntelliJ / Eclipse
+
+Clic droit sur `RestServer.java` → **Run 'RestServer.main()'**
+
+Le serveur démarre sur **http://localhost:8080**.
+
+---
+
+## 3. Accéder à Swagger UI
+
+Une fois le backend démarré :
+
+| URL | Description |
+|---|---|
+| `http://localhost:8080/api/` | **Swagger UI** — interface graphique |
+| `http://localhost:8080/openapi.json` | Schéma OpenAPI au format JSON |
+
+Swagger UI liste tous les endpoints disponibles et permet de les tester directement depuis le navigateur sans aucun outil externe.
+
+---
+
+## 4. Démarrer le frontend Angular
+
+```bash
+# Aller dans le dossier frontend
+cd ticket-front
+
+# Installer les dépendances (première fois uniquement)
+npm install
+
+# Lancer le serveur de développement
+ng serve
+```
+
+L'application est accessible sur **http://localhost:4200**.
+
+> Le backend doit être démarré avant le frontend pour que les données s'affichent.
+
+---
+
+## Comment le frontend se connecte au backend
+
+### Le lien clé : `environment.ts`
+
+```typescript
+// ticket-front/src/environments/environment.ts
+export const environment = {
+  production: false,
+  apiUrl: 'http://localhost:8080'   ← URL du backend
+};
+```
+
+Toutes les URLs d'appel API sont construites à partir de cette variable. Pour changer l'adresse du backend (déploiement, Docker, etc.), il suffit de modifier ce seul fichier.
+
+### Services Angular → API REST
+
+Chaque service Angular injecte `HttpClient` et appelle les endpoints :
+
+```
+Angular ConcertService          →    Backend /concerts
+  getAll()                      →    GET  /concerts
+  getById(id)                   →    GET  /concerts/{id}
+  create(dto)                   →    POST /concerts
+  delete(id)                    →    DELETE /concerts/{id}
+
+Angular TicketService           →    Backend /tickets
+  getAll()                      →    GET  /tickets
+  create(dto)                   →    POST /tickets
+  annuler(id)                   →    DELETE /tickets/{id}/annuler
+```
+
+### CORS (pourquoi ça fonctionne)
+
+Sans configuration CORS, le navigateur bloquerait les requêtes Angular (port 4200) vers le backend (port 8080) car ils sont sur des ports différents. Le `CorsFilter` ajouté côté backend autorise ces échanges :
 
 ```java
-@ApplicationPath("/")
-public class RestApplication extends Application {
+// src/main/java/fr/istic/taa/jaxrs/rest/CorsFilter.java
+response.getHeaders().add("Access-Control-Allow-Origin", "*");
+response.getHeaders().add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+```
 
-	@Override
-	public Set<Class<?>> getClasses() {
-		final Set<Class<?>> resources = new HashSet<>();
+---
 
+## API REST — Endpoints disponibles
 
-		// SWAGGER endpoints
-		resources.add(OpenApiResource.class);
+### Concerts
 
-        //Your own resources. 
-        resources.add(PersonResource.class);
-....
-		return resources;
-	}
+| Méthode | Endpoint | Description |
+|---|---|---|
+| `GET` | `/concerts` | Liste de tous les concerts |
+| `GET` | `/concerts/{id}` | Détail d'un concert |
+| `POST` | `/concerts` | Créer un concert |
+| `DELETE` | `/concerts/{id}` | Supprimer un concert |
+
+**Corps POST /concerts :**
+```json
+{
+  "organiserId": 1,
+  "lieu": "Zénith Paris",
+  "description": "Grand concert de rock",
+  "dateTime": "2026-06-15T20:00:00",
+  "capacite": 500,
+  "popularite": 4
 }
 ```
 
-Next start your server, you must have your api description available at [http://localhost:8080/openapi.json](http://localhost:8080/openapi.json)
+### Tickets
 
-### Integrate Swagger UI. 
+| Méthode | Endpoint | Description |
+|---|---|---|
+| `GET` | `/tickets` | Liste de tous les tickets |
+| `GET` | `/tickets/{id}` | Détail d'un ticket |
+| `POST` | `/tickets` | Acheter un ticket |
+| `DELETE` | `/tickets/{id}/annuler` | Annuler un ticket |
 
-Next we have to integrate Swagger UI. We will first download it.
-https://github.com/swagger-api/swagger-ui
-
-Copy dist folder content in src/main/webapp/swagger in your project. 
-
-Edit index.html file to automatically load your openapi.json file. 
-
-At the end of the index.html, your must have something like that.
-
-```js
-   // Build a system
-      const ui = SwaggerUIBundle({
-        url: "http://localhost:8080/openapi.json",
-        dom_id: '#swagger-ui',
-        
-        ...
-```
-
-Next add a new resources to create a simple http server when your try to access to http://localhost:8080/api/.
-
-This new resources can be developped as follows
-
-```java
-package app.web.rest;
-
-import java.io.IOException;
-import java.nio.file.FileSystems;
-import java.nio.file.Files;
-import java.util.logging.Logger;
-
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
-import javax.ws.rs.PathParam;
-
-@Path("/api")
-public class SwaggerResource {
-
-    private static final Logger logger = Logger.getLogger(SwaggerResource.class.getName());
-
-    @GET
-    public byte[] Get1() {
-        try {
-            return Files.readAllBytes(FileSystems.getDefault().getPath("src/main/webapp/swagger/index.html"));
-        } catch (IOException e) {
-            return null;
-        }
-    }
-
-    @GET
-    @Path("{path:.*}")
-    public byte[] Get(@PathParam("path") String path) {
-        try {
-            return Files.readAllBytes(FileSystems.getDefault().getPath("src/main/webapp/swagger/"+path));
-        } catch (IOException e) {
-            return null;
-        }
-    }
-
+**Corps POST /tickets :**
+```json
+{
+  "utilisateurId": 1,
+  "concertId": 10,
+  "numeroPlace": "VIP3"
 }
 ```
 
-Add this new resources in your application
+---
 
-```java
-@ApplicationPath("/")
-public class RestApplication extends Application {
+## Logique métier implémentée
 
+### Pricing dynamique des tickets
 
-	@Override
-	public Set<Class<?>> getClasses() {
-		final Set<Class<?>> resources = new HashSet<>();
+Le prix est calculé automatiquement selon plusieurs critères :
 
+| Critère | Règle | Impact |
+|---|---|---|
+| Zone de la place | VIP | +50€ |
+| | Zone A | +20€ |
+| | Zone B | +10€ |
+| | Autres | +5€ |
+| Numéro de place | Places 1-10 | +20€ |
+| | Places 11-30 | +10€ |
+| Popularité | Par étoile (1 à 5) | +5€ par étoile |
+| Surge pricing | Moins de 20% de places restantes | +15€ |
+| Prix de base | — | 30€ |
 
-		// SWAGGER endpoints
-		resources.add(OpenApiResource.class);
-		resources.add(PersonResource.class);
-        //NEW LINE TO ADD
-		resources.add(SwaggerResource.class);
+**Exemple :** Place VIP1, concert popularité 4 → 30 + 50 + 20 + 20 = **120€**
 
-		return resources;
-	}
-}
+### Validation des réservations
+
+L'API vérifie automatiquement :
+- Le client existe en base
+- Le concert existe et n'est pas passé
+- Des places sont encore disponibles (`capacite > 0`)
+- La place spécifique n'est pas déjà réservée
+
+### Gestion des places
+
+- À chaque achat : `concert.capacite - 1`
+- À chaque annulation : `concert.capacite + 1`
+- `capaciteMax` reste immuable (capacité totale initiale)
+
+### Statuts de ticket
+
+| Statut | Description |
+|---|---|
+| `ACTIVE` | Ticket valide, peut être annulé |
+| `ANNULE` | Ticket annulé (place restituée au concert) |
+| `UTILISE` | Ticket utilisé à l'entrée (non annulable) |
+
+---
+
+## Fonctionnalités du frontend Angular
+
+### Page Concerts (`/concerts`)
+- Affiche la liste de tous les concerts à venir
+- Barre de progression du taux de remplissage (rouge si < 20% restant)
+- Badge "COMPLET" si plus de places disponibles
+- Étoiles de popularité
+- Bouton "Réserver" désactivé si complet
+
+### Page Détail Concert (`/concerts/:id`)
+- Informations complètes du concert
+- Formulaire d'achat intégré :
+  - Saisie de l'ID client et du numéro de place
+  - Confirmation de réservation en temps réel
+  - Message de succès ou d'erreur
+
+### Page Mes Tickets (`/mes-tickets`)
+- Chargement de tous les tickets
+- Statistiques (actifs / annulés)
+- Bouton "Annuler" sur chaque ticket actif avec confirmation
+- Mise à jour du statut en temps réel sans rechargement
+
+---
+
+## Lancer les tests unitaires (backend)
+
+```bash
+mvn test
 ```
 
-Restart your server and access to http://localhost:8080/api/, you should access to a swagger ui instance that provides documentation on your api. 
+24 tests unitaires couvrent la logique métier des services :
 
-You can follow this guide to show how you can specialise the documentation through annotations.
+| Classe testée | Nb tests | Ce qui est testé |
+|---|---|---|
+| `TicketService` | 13 | validations, pricing VIP/A/B, surge, annulation |
+| `ConcertService` | 11 | validations, initialisation capacité, suppression |
 
-https://github.com/swagger-api/swagger-samples/blob/2.0/java/java-resteasy-appclasses/src/main/java/io/swagger/sample/resource/PetResource.java
+Les DAOs sont mockés avec Mockito — aucune base de données nécessaire pour les tests.
+
+---
+
+## Structure des données (modèle JPA)
+
+```
+User (abstract, TABLE_PER_CLASS)
+├── Client  ─── ticketsAchetes ──→ Ticket (1-N)
+└── Organiser ── concerts ───────→ Concert (1-N)
+
+Concert ──── ticketsVendus ──────→ Ticket (1-N)
+Ticket  ──── client ─────────────→ Client (N-1)
+Ticket  ──── concert ────────────→ Concert (N-1)
+```
+
+---
+
+## Déploiement en production
+
+Pour pointer le frontend vers un backend distant, modifiez :
+
+```typescript
+// ticket-front/src/environments/environment.prod.ts
+export const environment = {
+  production: true,
+  apiUrl: 'https://votre-api.example.com'
+};
+```
+
+Puis buildez :
+```bash
+ng build --configuration=production
+```
+
+Les fichiers du dossier `dist/ticket-front/` peuvent être déployés sur n'importe quel serveur web statique (Nginx, Apache, Netlify, etc.).
