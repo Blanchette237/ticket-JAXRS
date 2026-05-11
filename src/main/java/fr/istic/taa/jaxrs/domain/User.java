@@ -2,9 +2,25 @@ package fr.istic.taa.jaxrs.domain;
 
 import jakarta.persistence.*;
 
+/**
+ * Classe parente commune à Client et Organiser.
+ *
+ * Stratégie d'héritage TABLE_PER_CLASS :
+ * Hibernate crée une table séparée pour chaque sous-classe concrète (client, oganiser).
+ * Chaque table contient TOUS les champs : ceux de User + ceux propres à la sous-classe.
+ * Avantage : pas de jointure SQL nécessaire pour récupérer un client ou un organisateur.
+ * Inconvénient : les champs communs (name, email...) sont dupliqués dans chaque table.
+ *
+ * Alternative non choisie : SINGLE_TABLE (tout dans une seule table avec une colonne discriminante)
+ * ou JOINED (une table par niveau avec jointures).
+ *
+ * Pourquoi SEQUENCE pour GenerationType ?
+ * TABLE_PER_CLASS interdit AUTO et IDENTITY car Hibernate a besoin de connaître
+ * l'ID avant d'insérer (pour savoir dans quelle table insérer). SEQUENCE utilise
+ * une séquence SQL partagée qui garantit des IDs uniques entre toutes les sous-classes.
+ */
 @Entity
 @Inheritance(strategy = InheritanceType.TABLE_PER_CLASS)
-
 public class User {
 	@Id
 	@GeneratedValue(strategy = GenerationType.SEQUENCE)
@@ -25,38 +41,15 @@ public class User {
 		this.password = password;
 		this.email = email;
 	}
-	public Long getUserId() {
-		return UserId;
-	}
-	public void setUserId(Long userId) {
-		UserId = userId;
-	}
-	public String getName() {
-		return name;
-	}
-	public void setName(String name) {
-		this.name = name;
-	}
-	public String getFirstname() {
-		return firstname;
-	}
-	public void setFirstname(String firstname) {
-		this.firstname = firstname;
-	}
-	public String getPassword() {
-		return password;
-	}
-	public void setPassword(String password) {
-		this.password = password;
-	}
-	public String getEmail() {
-		return email;
-	}
-	public void setEmail(String email) {
-		this.email = email;
-	}
 
-	
-
-
+	public Long getUserId() { return UserId; }
+	public void setUserId(Long userId) { UserId = userId; }
+	public String getName() { return name; }
+	public void setName(String name) { this.name = name; }
+	public String getFirstname() { return firstname; }
+	public void setFirstname(String firstname) { this.firstname = firstname; }
+	public String getPassword() { return password; }
+	public void setPassword(String password) { this.password = password; }
+	public String getEmail() { return email; }
+	public void setEmail(String email) { this.email = email; }
 }

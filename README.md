@@ -1,188 +1,217 @@
-# TicketApp — Gestion de tickets de concerts
+# TicketApp — Plateforme de billetterie de concerts
 
-Application full-stack de réservation de tickets de concerts, composée d'une **API REST Java JAX-RS** (backend) et d'une **application Angular** (frontend).
+> **Application full-stack de gestion et de réservation de tickets de concerts.**
+> Développée en Java JAX-RS (backend) et Angular 17 (frontend), connectée à une base MySQL.
 
 ---
 
-## Architecture du projet
+## Démonstration rapide
 
 ```
-ticket-JAXRS/
-├── src/                        ← Backend Java (JAX-RS)
-│   └── main/java/fr/istic/taa/
-│       ├── jaxr/
-│       │   ├── dto/            ← Objets de transfert (entrée API)
-│       │   └── services/       ← Logique métier
-│       └── jaxrs/
-│           ├── dao/            ← Accès base de données (JPA/Hibernate)
-│           ├── domain/         ← Entités JPA (Concert, Ticket, Client…)
-│           └── rest/           ← Ressources REST exposées
-├── ticket-front/               ← Frontend Angular 17
-│   └── src/app/
-│       ├── models/             ← Interfaces TypeScript
-│       ├── services/           ← Appels HTTP vers le backend
-│       └── components/         ← Pages et composants UI
-└── pom.xml                     ← Configuration Maven
+Terminal 1 — Démarrer le backend  →  mvn exec:java -Dexec.mainClass="fr.istic.taa.jaxrs.RestServer"
+Terminal 2 — Démarrer le frontend →  cd ticket-front && ng serve
+Navigateur                         →  http://localhost:4200
 ```
 
 ---
 
-## Stack technique
+## Ce que fait l'application
 
-| Couche | Technologie |
+TicketApp met en relation deux types d'utilisateurs :
+
+| Rôle | Ce qu'il peut faire |
 |---|---|
-| Backend | Java 11, JAX-RS (RESTEasy 6.2), Hibernate 6.2, Undertow |
-| Frontend | Angular 17 (standalone components), TypeScript, SCSS |
-| Base de données | MySQL 8 |
-| Documentation API | OpenAPI 3 + Swagger UI |
-| Tests | JUnit 5 + Mockito 5 |
+| **Organisateur** | Créer un compte · Créer des concerts avec date, lieu, capacité et popularité · Suivre le taux de remplissage en temps réel · Supprimer un concert |
+| **Client** | Créer un compte · Parcourir les concerts disponibles · Réserver un ticket (prix calculé automatiquement) · Consulter et annuler ses tickets |
 
----
+### Parcours utilisateur complet
 
-## Prérequis
-
-- **Java 11+** et **Maven 3.6+**
-- **Node.js 18+** et **npm 9+**
-- **MySQL 8** en cours d'exécution
-- **Angular CLI 17** : `npm install -g @angular/cli@17`
-
----
-
-## 1. Démarrer la base de données
-
-### Créer la base MySQL
-
-```sql
-CREATE DATABASE ticketdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'ticketuser'@'localhost' IDENTIFIED BY 'ticketpass';
-GRANT ALL PRIVILEGES ON ticketdb.* TO 'ticketuser'@'localhost';
-FLUSH PRIVILEGES;
+```
+1. L'organisateur s'inscrit → obtient un ID
+2. Il crée un concert (lieu, date, capacité, popularité)
+3. Le client s'inscrit → obtient un ID
+4. Il parcourt les concerts disponibles
+5. Il choisit une place (ex: VIP1, A12, B34) → prix calculé dynamiquement
+6. Il reçoit son ticket (statut ACTIVE)
+7. Il peut annuler → la place est automatiquement restituée
 ```
 
-### Configuration dans `persistence.xml`
+---
 
-Le fichier `src/main/resources/META-INF/persistence.xml` contient la connexion :
+## Fonctionnalités métier
 
-```xml
-<property name="jakarta.persistence.jdbc.url" value="jdbc:mysql://localhost:3306/ticketdb"/>
-<property name="jakarta.persistence.jdbc.user" value="root"/>
-<property name="jakarta.persistence.jdbc.password" value=""/>
+### Tarification dynamique
+
+Le prix de chaque ticket est calculé en temps réel selon 4 critères cumulables :
+
+| Critère | Détail | Impact |
+|---|---|---|
+| **Zone** | VIP | +50 € |
+| | Zone A | +20 € |
+| | Zone B | +10 € |
+| | Autres zones | +5 € |
+| **Position** | Places 1 à 10 (devant la scène) | +20 € |
+| | Places 11 à 30 | +10 € |
+| **Popularité** | Note de 1 à 5 étoiles | +5 € par étoile |
+| **Surge pricing** | Moins de 20 % de places restantes | +15 € |
+| **Base** | Prix plancher | 30 € |
+
+> **Exemple :** Place `VIP3` pour un concert 4 étoiles = 30 + 50 + 20 + 20 = **120 €**
+
+### Gestion de la capacité
+
+- `capaciteMax` : nombre total de places défini à la création — **ne change jamais**
+- `capacite` : places encore disponibles — décrémentée à chaque achat, restaurée à chaque annulation
+- Dès que `capacite = 0`, le concert affiche "COMPLET" et les réservations sont bloquées
+
+### Cycle de vie d'un ticket
+
+```
+[Achat] → ACTIVE → [Annulation] → ANNULE  (place restituée au concert)
+                 → [Utilisation]→ UTILISE (non annulable)
 ```
 
-> Modifiez les identifiants selon votre configuration MySQL.
+### Validations automatiques côté serveur
 
-Hibernate crée automatiquement les tables au premier démarrage (`hbm2ddl.auto=update`).
+Chaque demande de réservation est vérifiée avant traitement :
+- Le client existe bien en base de données
+- Le concert existe et sa date est dans le futur
+- Il reste au moins une place disponible
+- La place demandée n'est pas déjà prise
 
 ---
 
-## 2. Démarrer le backend
+## Architecture technique
 
-### Depuis le terminal
-
-```bash
-# Compiler
-mvn compile
-
-# Lancer le serveur
-mvn exec:java -Dexec.mainClass="fr.istic.taa.jaxrs.RestServer"
+```
+┌─────────────────────────────────────────────────────────┐
+│                    NAVIGATEUR                           │
+│              Angular 17 — localhost:4200                │
+│                                                         │
+│  /inscription   /concerts   /concerts/:id   /mes-tickets│
+│  /organisateur                                          │
+└──────────────────────┬──────────────────────────────────┘
+                       │ HTTP + JSON (CORS autorisé)
+┌──────────────────────▼──────────────────────────────────┐
+│                 API REST — localhost:8080                │
+│              Java 11 · JAX-RS (RESTEasy) · Undertow     │
+│                                                         │
+│  /clients  /organisateurs  /concerts  /tickets          │
+│                                                         │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │          Couche Service (logique métier)         │   │
+│  │  Pricing · Validations · Gestion des places     │   │
+│  └──────────────────────────────────────────────────┘   │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │           Couche DAO (accès données)             │   │
+│  │        Hibernate 6 · JPA · AbstractJpaDao        │   │
+│  └──────────────────────────────────────────────────┘   │
+└──────────────────────┬──────────────────────────────────┘
+                       │ JDBC
+┌──────────────────────▼──────────────────────────────────┐
+│                   MySQL 8 — port 3306                   │
+│         Tables : client · oganiser · concert · ticket   │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Depuis IntelliJ / Eclipse
+### Stack technique
 
-Clic droit sur `RestServer.java` → **Run 'RestServer.main()'**
+| Couche | Technologie | Rôle |
+|---|---|---|
+| Frontend | Angular 17, TypeScript, SCSS | Interface utilisateur |
+| Backend | Java 11, JAX-RS (RESTEasy 6.2) | API REST |
+| Serveur embarqué | Undertow | Pas de Tomcat/WildFly à installer |
+| ORM | Hibernate 6.2 + JPA | Mapping objet-base de données |
+| Base de données | MySQL 8 | Persistance des données |
+| Documentation API | OpenAPI 3 + Swagger UI | `/api/` |
+| Tests | JUnit 5 + Mockito 5 | 24 tests unitaires |
 
-Le serveur démarre sur **http://localhost:8080**.
+### Modèle de données
 
----
+```
+User (classe abstraite — TABLE_PER_CLASS)
+├── Client   ────────────────→ Ticket (1 client → N tickets)
+└── Organiser ───────────────→ Concert (1 organisateur → N concerts)
 
-## 3. Accéder à Swagger UI
-
-Une fois le backend démarré :
-
-| URL | Description |
-|---|---|
-| `http://localhost:8080/api/` | **Swagger UI** — interface graphique |
-| `http://localhost:8080/openapi.json` | Schéma OpenAPI au format JSON |
-
-Swagger UI liste tous les endpoints disponibles et permet de les tester directement depuis le navigateur sans aucun outil externe.
-
----
-
-## 4. Démarrer le frontend Angular
-
-```bash
-# Aller dans le dossier frontend
-cd ticket-front
-
-# Installer les dépendances (première fois uniquement)
-npm install
-
-# Lancer le serveur de développement
-ng serve
+Concert ─────────────────────→ Ticket (1 concert → N tickets)
+Ticket ──────────────────────→ Client  (N-1)
+Ticket ──────────────────────→ Concert (N-1)
 ```
 
-L'application est accessible sur **http://localhost:4200**.
-
-> Le backend doit être démarré avant le frontend pour que les données s'affichent.
+> `TABLE_PER_CLASS` signifie que `Client` et `Organiser` ont chacun leur propre table SQL,
+> avec tous les champs de `User` dupliqués — pas de jointure nécessaire pour les récupérer.
 
 ---
 
-## Comment le frontend se connecte au backend
+## Comment frontend et backend communiquent
 
-### Le lien clé : `environment.ts`
+### 1. Point de connexion unique : `environment.ts`
 
 ```typescript
 // ticket-front/src/environments/environment.ts
 export const environment = {
   production: false,
-  apiUrl: 'http://localhost:8080'   ← URL du backend
+  apiUrl: 'http://localhost:8080'  // ← changer cette ligne pour un déploiement
 };
 ```
 
-Toutes les URLs d'appel API sont construites à partir de cette variable. Pour changer l'adresse du backend (déploiement, Docker, etc.), il suffit de modifier ce seul fichier.
+Toutes les URLs d'appel API sont construites à partir de cette variable.
+Pour pointer vers un serveur distant, **un seul fichier à modifier**.
 
-### Services Angular → API REST
-
-Chaque service Angular injecte `HttpClient` et appelle les endpoints :
+### 2. Services Angular → Endpoints REST
 
 ```
-Angular ConcertService          →    Backend /concerts
-  getAll()                      →    GET  /concerts
-  getById(id)                   →    GET  /concerts/{id}
-  create(dto)                   →    POST /concerts
-  delete(id)                    →    DELETE /concerts/{id}
-
-Angular TicketService           →    Backend /tickets
-  getAll()                      →    GET  /tickets
-  create(dto)                   →    POST /tickets
-  annuler(id)                   →    DELETE /tickets/{id}/annuler
+Angular ConcertService.getAll()        →  GET  /concerts
+Angular ConcertService.create(dto)     →  POST /concerts
+Angular TicketService.create(dto)      →  POST /tickets
+Angular TicketService.annuler(id)      →  DELETE /tickets/{id}/annuler
+Angular ClientService.getTickets(id)   →  GET  /clients/{id}/tickets
 ```
 
-### CORS (pourquoi ça fonctionne)
+### 3. Gestion CORS
 
-Sans configuration CORS, le navigateur bloquerait les requêtes Angular (port 4200) vers le backend (port 8080) car ils sont sur des ports différents. Le `CorsFilter` ajouté côté backend autorise ces échanges :
+Le navigateur interdit par défaut les requêtes cross-port (4200 → 8080).
+Le `CorsFilter` côté backend lève cette restriction en ajoutant les en-têtes HTTP appropriés.
+Sans lui, l'application Angular ne pourrait pas appeler l'API.
 
-```java
-// src/main/java/fr/istic/taa/jaxrs/rest/CorsFilter.java
-response.getHeaders().add("Access-Control-Allow-Origin", "*");
-response.getHeaders().add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-```
+### 4. Session utilisateur (localStorage)
+
+La session est stockée dans le `localStorage` du navigateur via un `BehaviorSubject` RxJS.
+Elle survit aux rechargements de page. La navbar se met à jour instantanément à la connexion
+et à la déconnexion sans rechargement.
 
 ---
 
-## API REST — Endpoints disponibles
+## API REST — Référence complète
 
-### Concerts
+### Clients — `/clients`
 
-| Méthode | Endpoint | Description |
-|---|---|---|
-| `GET` | `/concerts` | Liste de tous les concerts |
-| `GET` | `/concerts/{id}` | Détail d'un concert |
-| `POST` | `/concerts` | Créer un concert |
-| `DELETE` | `/concerts/{id}` | Supprimer un concert |
+| Méthode | Endpoint | Description | Corps |
+|---|---|---|---|
+| `POST` | `/clients` | Créer un client | `{"name","firstname","email","password"}` |
+| `GET` | `/clients` | Lister tous les clients | — |
+| `GET` | `/clients/{id}` | Détail d'un client | — |
+| `GET` | `/clients/{id}/tickets` | Tickets d'un client | — |
 
-**Corps POST /concerts :**
+### Organisateurs — `/organisateurs`
+
+| Méthode | Endpoint | Description | Corps |
+|---|---|---|---|
+| `POST` | `/organisateurs` | Créer un organisateur | `{"name","firstname","email","password"}` |
+| `GET` | `/organisateurs` | Lister tous les organisateurs | — |
+| `GET` | `/organisateurs/{id}` | Détail d'un organisateur | — |
+
+### Concerts — `/concerts`
+
+| Méthode | Endpoint | Description | Corps |
+|---|---|---|---|
+| `GET` | `/concerts` | Lister tous les concerts | — |
+| `GET` | `/concerts/{id}` | Détail d'un concert | — |
+| `POST` | `/concerts` | Créer un concert | voir ci-dessous |
+| `DELETE` | `/concerts/{id}` | Supprimer un concert | — |
+
 ```json
+POST /concerts
 {
   "organiserId": 1,
   "lieu": "Zénith Paris",
@@ -193,17 +222,17 @@ response.getHeaders().add("Access-Control-Allow-Methods", "GET, POST, PUT, DELET
 }
 ```
 
-### Tickets
+### Tickets — `/tickets`
 
-| Méthode | Endpoint | Description |
-|---|---|---|
-| `GET` | `/tickets` | Liste de tous les tickets |
-| `GET` | `/tickets/{id}` | Détail d'un ticket |
-| `POST` | `/tickets` | Acheter un ticket |
-| `DELETE` | `/tickets/{id}/annuler` | Annuler un ticket |
+| Méthode | Endpoint | Description | Corps |
+|---|---|---|---|
+| `GET` | `/tickets` | Lister tous les tickets | — |
+| `GET` | `/tickets/{id}` | Détail d'un ticket | — |
+| `POST` | `/tickets` | Acheter un ticket | voir ci-dessous |
+| `DELETE` | `/tickets/{id}/annuler` | Annuler un ticket | — |
 
-**Corps POST /tickets :**
 ```json
+POST /tickets
 {
   "utilisateurId": 1,
   "concertId": 10,
@@ -213,120 +242,229 @@ response.getHeaders().add("Access-Control-Allow-Methods", "GET, POST, PUT, DELET
 
 ---
 
-## Logique métier implémentée
+## Installation et démarrage
 
-### Pricing dynamique des tickets
+### Prérequis
 
-Le prix est calculé automatiquement selon plusieurs critères :
+- **Java 11+** et **Maven 3.6+**
+- **Node.js 18+** et **npm 9+**
+- **MySQL 8** démarré en local
+- **Angular CLI 17** : `npm install -g @angular/cli@17`
 
-| Critère | Règle | Impact |
-|---|---|---|
-| Zone de la place | VIP | +50€ |
-| | Zone A | +20€ |
-| | Zone B | +10€ |
-| | Autres | +5€ |
-| Numéro de place | Places 1-10 | +20€ |
-| | Places 11-30 | +10€ |
-| Popularité | Par étoile (1 à 5) | +5€ par étoile |
-| Surge pricing | Moins de 20% de places restantes | +15€ |
-| Prix de base | — | 30€ |
+### Étape 1 — Préparer la base de données MySQL
 
-**Exemple :** Place VIP1, concert popularité 4 → 30 + 50 + 20 + 20 = **120€**
+```sql
+-- Créer la base et l'utilisateur
+CREATE DATABASE ticketdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'ticketuser'@'localhost' IDENTIFIED BY 'ticketpass';
+GRANT ALL PRIVILEGES ON ticketdb.* TO 'ticketuser'@'localhost';
+FLUSH PRIVILEGES;
+```
 
-### Validation des réservations
+Puis vérifier la connexion dans `src/main/resources/META-INF/persistence.xml` :
+```xml
+<property name="jakarta.persistence.jdbc.url"      value="jdbc:mysql://localhost:3306/ticketdb"/>
+<property name="jakarta.persistence.jdbc.user"     value="root"/>
+<property name="jakarta.persistence.jdbc.password" value=""/>
+```
+> Hibernate crée les tables automatiquement au premier démarrage (`hbm2ddl.auto=update`).
+> Aucun script SQL à exécuter manuellement.
 
-L'API vérifie automatiquement :
-- Le client existe en base
-- Le concert existe et n'est pas passé
-- Des places sont encore disponibles (`capacite > 0`)
-- La place spécifique n'est pas déjà réservée
+### Étape 2 — Démarrer le backend
 
-### Gestion des places
+```bash
+# Option A — ligne de commande
+mvn exec:java -Dexec.mainClass="fr.istic.taa.jaxrs.RestServer"
 
-- À chaque achat : `concert.capacite - 1`
-- À chaque annulation : `concert.capacite + 1`
-- `capaciteMax` reste immuable (capacité totale initiale)
+# Option B — IDE (IntelliJ / Eclipse)
+# Clic droit sur RestServer.java → Run 'RestServer.main()'
+```
 
-### Statuts de ticket
+Le serveur est prêt quand vous voyez : `JAX-RS based micro-service running!`
 
-| Statut | Description |
+| URL | Accès |
 |---|---|
-| `ACTIVE` | Ticket valide, peut être annulé |
-| `ANNULE` | Ticket annulé (place restituée au concert) |
-| `UTILISE` | Ticket utilisé à l'entrée (non annulable) |
+| `http://localhost:8080/api/` | **Swagger UI** — tester l'API visuellement |
+| `http://localhost:8080/openapi.json` | Schéma OpenAPI brut |
+| `http://localhost:8080/concerts` | Premier endpoint à tester |
+
+### Étape 3 — Démarrer le frontend
+
+```bash
+cd ticket-front
+npm install          # première fois uniquement
+ng serve
+```
+
+Ouvrir **http://localhost:4200** dans le navigateur.
+
+### Étape 4 — Premier scénario de test
+
+```
+1. Aller sur http://localhost:4200/inscription
+2. Choisir "Organisateur" → remplir le formulaire → valider
+   → vous êtes redirigé sur le dashboard organisateur
+3. Créer un concert (ex: Zénith Paris, 100 places, popularité 4, date future)
+4. Cliquer "Se déconnecter" dans la navbar
+5. Retourner sur /inscription → choisir "Client" → créer un compte
+6. Aller sur /concerts → cliquer sur le concert créé
+7. Entrer une place (ex: VIP1) → Confirmer la réservation
+8. Aller sur /mes-tickets → voir le ticket acheté avec son prix calculé
+9. Cliquer "Annuler" → le ticket passe à ANNULE, la place est restituée
+```
 
 ---
 
-## Fonctionnalités du frontend Angular
+## Swagger UI — Tester l'API sans code
 
-### Page Concerts (`/concerts`)
-- Affiche la liste de tous les concerts à venir
-- Barre de progression du taux de remplissage (rouge si < 20% restant)
-- Badge "COMPLET" si plus de places disponibles
-- Étoiles de popularité
-- Bouton "Réserver" désactivé si complet
+Swagger UI est disponible sur **http://localhost:8080/api/** dès que le backend est démarré.
 
-### Page Détail Concert (`/concerts/:id`)
-- Informations complètes du concert
-- Formulaire d'achat intégré :
-  - Saisie de l'ID client et du numéro de place
-  - Confirmation de réservation en temps réel
-  - Message de succès ou d'erreur
+Il permet de :
+- Visualiser tous les endpoints disponibles organisés par ressource
+- Tester chaque endpoint directement depuis le navigateur (pas besoin de Postman)
+- Voir les formats JSON attendus en entrée et retournés en sortie
+- Comprendre les codes de réponse possibles (200, 201, 400, 404, 409…)
 
-### Page Mes Tickets (`/mes-tickets`)
-- Chargement de tous les tickets
-- Statistiques (actifs / annulés)
-- Bouton "Annuler" sur chaque ticket actif avec confirmation
-- Mise à jour du statut en temps réel sans rechargement
+**Ordre conseillé pour tester dans Swagger :**
+1. `POST /organisateurs` → noter l'ID retourné
+2. `POST /concerts` → utiliser l'ID organisateur
+3. `POST /clients` → noter l'ID retourné
+4. `POST /tickets` → utiliser les IDs client et concert
+5. `GET /clients/{id}/tickets` → voir le ticket créé
+6. `DELETE /tickets/{id}/annuler` → annuler
 
 ---
 
-## Lancer les tests unitaires (backend)
+## Tests unitaires
 
 ```bash
 mvn test
+# → 24 tests, 0 échec
 ```
 
-24 tests unitaires couvrent la logique métier des services :
+Les tests couvrent la logique métier des services, sans base de données
+(les DAOs sont remplacés par des mocks Mockito) :
 
-| Classe testée | Nb tests | Ce qui est testé |
+| Classe | Tests | Scénarios couverts |
 |---|---|---|
-| `TicketService` | 13 | validations, pricing VIP/A/B, surge, annulation |
-| `ConcertService` | 11 | validations, initialisation capacité, suppression |
-
-Les DAOs sont mockés avec Mockito — aucune base de données nécessaire pour les tests.
+| `TicketService` | 13 | client inexistant · concert inexistant · concert passé · concert complet · place déjà prise · pricing VIP/A/B · surge pricing · annulation OK · annulation d'un ticket déjà annulé |
+| `ConcertService` | 11 | organisateur inexistant · capacité nulle ou négative · date passée · création OK · popularité nulle · suppression OK |
 
 ---
 
-## Structure des données (modèle JPA)
+## Structure du projet
 
 ```
-User (abstract, TABLE_PER_CLASS)
-├── Client  ─── ticketsAchetes ──→ Ticket (1-N)
-└── Organiser ── concerts ───────→ Concert (1-N)
-
-Concert ──── ticketsVendus ──────→ Ticket (1-N)
-Ticket  ──── client ─────────────→ Client (N-1)
-Ticket  ──── concert ────────────→ Concert (N-1)
+ticket-JAXRS/
+│
+├── src/main/java/fr/istic/taa/
+│   ├── jaxr/
+│   │   ├── dto/                    ← Objets reçus par l'API (validation des entrées)
+│   │   │   ├── ClientCreateDTO.java
+│   │   │   ├── ConcertCreateDTO.java
+│   │   │   ├── OrganiserCreateDTO.java
+│   │   │   └── TicketCreateDTO.java
+│   │   └── services/               ← Logique métier pure (sans HTTP)
+│   │       ├── ClientService.java
+│   │       ├── ConcertService.java
+│   │       ├── OrganiserService.java
+│   │       ├── TicketService.java  ← Pricing + validations
+│   │       └── ConflictException.java
+│   └── jaxrs/
+│       ├── dao/generic/            ← Accès base de données (pattern DAO générique)
+│       │   ├── IGenericDao.java
+│       │   ├── AbstractJpaDao.java ← CRUD générique réutilisable
+│       │   ├── EntityManagerHelper.java
+│       │   ├── ClientDao.java
+│       │   ├── ConcertDao.java
+│       │   ├── OrganisateurDao.java
+│       │   └── TicketDao.java
+│       ├── domain/                 ← Entités JPA (miroir des tables SQL)
+│       │   ├── User.java           ← Classe parente abstraite
+│       │   ├── Client.java
+│       │   ├── Organiser.java
+│       │   ├── Concert.java
+│       │   ├── Ticket.java
+│       │   └── TicketStatus.java   ← Enum ACTIVE / ANNULE / UTILISE
+│       ├── rest/                   ← Points d'entrée HTTP
+│       │   ├── ClientResource.java
+│       │   ├── OrganisateurResource.java
+│       │   ├── ConcertRessource.java
+│       │   ├── TicketResource.java
+│       │   ├── CorsFilter.java     ← Autorise les requêtes Angular
+│       │   └── config.java         ← Métadonnées Swagger
+│       ├── RestServer.java         ← Point d'entrée — démarre le serveur
+│       └── TestApplication.java    ← Enregistrement de toutes les ressources
+│
+├── src/test/                       ← Tests unitaires JUnit 5 + Mockito
+│
+├── ticket-front/                   ← Application Angular 17
+│   └── src/app/
+│       ├── models/                 ← Interfaces TypeScript (Concert, Ticket, User)
+│       ├── services/               ← Appels HTTP + gestion de session
+│       │   ├── concert.service.ts
+│       │   ├── ticket.service.ts
+│       │   ├── client.service.ts
+│       │   ├── organiser.service.ts
+│       │   └── session.service.ts  ← Stockage session localStorage
+│       ├── components/
+│       │   ├── navbar/             ← Barre de navigation contextuelle
+│       │   ├── inscription/        ← Formulaire client ou organisateur
+│       │   ├── concert-list/       ← Liste des concerts (/concerts)
+│       │   ├── concert-detail/     ← Détail + réservation (/concerts/:id)
+│       │   ├── mes-tickets/        ← Tickets du client (/mes-tickets)
+│       │   └── organisateur-dashboard/ ← Gestion concerts (/organisateur)
+│       └── environments/
+│           └── environment.ts      ← URL du backend (à modifier pour prod)
+│
+└── pom.xml                         ← Dépendances Maven
 ```
 
 ---
 
 ## Déploiement en production
 
-Pour pointer le frontend vers un backend distant, modifiez :
+### Modifier l'URL du backend
 
 ```typescript
 // ticket-front/src/environments/environment.prod.ts
 export const environment = {
   production: true,
-  apiUrl: 'https://votre-api.example.com'
+  apiUrl: 'https://votre-api.example.com'  // ← URL du serveur de production
 };
 ```
 
-Puis buildez :
+### Construire le frontend
+
 ```bash
+cd ticket-front
 ng build --configuration=production
+# → génère dist/ticket-front/ (fichiers statiques)
 ```
 
-Les fichiers du dossier `dist/ticket-front/` peuvent être déployés sur n'importe quel serveur web statique (Nginx, Apache, Netlify, etc.).
+Ces fichiers peuvent être déployés sur **Nginx, Apache, Netlify, Vercel**, etc.
+
+### Modifier la connexion base de données
+
+```xml
+<!-- src/main/resources/META-INF/persistence.xml -->
+<property name="jakarta.persistence.jdbc.url"
+          value="jdbc:mysql://votre-serveur:3306/ticketdb"/>
+```
+
+---
+
+## Évolutions prévues
+
+Les fonctionnalités suivantes ont été identifiées et sont prêtes à être développées :
+
+| Fonctionnalité | Valeur métier |
+|---|---|
+| Authentification JWT | Sécurisation des endpoints (actuellement ouverts) |
+| Réservation temporaire | Bloquer une place 15 min le temps du paiement |
+| Paiement en ligne | Intégration Stripe ou PayPal |
+| QR Code sur ticket | Contrôle d'accès à l'entrée du concert |
+| Remboursement partiel | Annulation à moins de 24h = 50 % remboursé |
+| Notifications email | Confirmation de réservation / annulation |
+| Recherche de concerts | Filtrer par lieu, date, popularité |
+| Dashboard analytics | Revenus et taux de remplissage pour l'organisateur |
